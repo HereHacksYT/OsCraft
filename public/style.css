@@ -1,36 +1,53 @@
 body, html {
-    margin: 0;
-    padding: 0;
-    overflow: hidden;
-    width: 100%;
-    height: 100%;
-    user-select: none;
-    background-color: #87CEEB; /* Gökyüzü Mavisi */
-    font-family: sans-serif;
+    margin: 0; padding: 0; overflow: hidden;
+    width: 100%; height: 100%;
+    font-family: 'Courier New', Courier, monospace;
+    background: #1a1a1a; user-select: none;
+}
+
+.menu-panel {
+    position: absolute; top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    background: rgba(0, 0, 0, 0.85);
+    border: 4px solid #555; padding: 30px;
+    text-align: center; color: white; border-radius: 10px;
+    width: 85%; max-width: 400px; z-index: 100;
+}
+
+h1 { color: #55ff55; text-shadow: 2px 2px #000; margin-bottom: 20px; }
+input, select {
+    width: 90%; padding: 12px; margin: 10px 0;
+    background: #222; border: 2px solid #555;
+    color: white; font-size: 16px; text-align: center;
+}
+button {
+    width: 95%; padding: 12px; margin: 8px 0;
+    background: #555; border: 2px solid #fff;
+    color: white; font-size: 16px; cursor: pointer; font-weight: bold;
+}
+button:hover { background: #44aa44; }
+
+.hidden { display: none !important; }
+
+/* Sekme Tasarımları */
+.tabs { display: flex; justify-content: space-around; margin-bottom: 15px; }
+.tab-btn { width: 45%; background: #333; }
+.tab-btn.active { background: #44aa44; }
+.tab-content { background: #222; padding: 15px; border-radius: 5px; min-height: 150px; }
+
+/* Kostüm Editörü Alanı */
+#skin-editor-panel {
+    position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+    z-index: 90; display: flex; flex-direction: column; background: #2c3e50;
+}
+#canvas-container { flex: 1; width: 100%; height: 70%; }
+.editor-controls {
+    height: 30%; background: rgba(0,0,0,0.8);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    padding: 10px; box-sizing: border-box;
 }
 
 #crosshair {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    font-size: 24px;
-    color: white;
-    font-weight: light;
-    pointer-events: none;
-    z-index: 10;
-}
-
-#instructions {
-    position: absolute;
-    top: 20px;
-    left: 50%;
-    transform: translateX(-50%);
-    color: white;
-    background: rgba(0,0,0,0.5);
-    padding: 10px 20px;
-    border-radius: 5px;
-    pointer-events: none;
-    font-size: 14px;
-    text-align: center;
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    font-size: 28px; color: white; pointer-events: none; z-index: 10;
 }
