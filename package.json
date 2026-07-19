@@ -1,0 +1,14 @@
+{
+  "name": "os-craft",
+  "version": "1.0.0",
+  "description": "Web-based Multiplayer Minecraft Clone",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "mongoose": "^8.5.1",
+    "socket.io": "^4.7.5"
+  }
+}
