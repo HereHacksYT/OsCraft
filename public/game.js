@@ -1,175 +1,277 @@
-const socket = io();
+let scene, camera, renderer, clock;
+let localPlayerId;
+let remotePlayers = {};
+let blocks = {};
+let isGameStarted = false;
 
-// --- THREE.JS KURULUMU ---
-const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x87CEEB);
-scene.fog = new THREE.FogExp2(0x87CEEB, 0.02);
+// Mobil Kontrol Değişkenleri
+let moveJoystick = { active: false, startX: 0, startY: 0, curX: 0, curY: 0 };
+let moveForward = 0, moveLeft = 0;
+let playerVelocity = new THREE.Vector3();
+let playerDirection = new THREE.Vector3();
+let pitch = 0, yaw = 0; // Kamera rotasyonları
 
-const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-const renderer = new THREE.WebGLRenderer({ antialias: true });
-renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.shadowMap.enabled = true;
-document.body.appendChild(renderer.domElement);
-
-// Işıklandırma
-const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
-scene.add(ambientLight);
-const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
-dirLight.position.set(20, 40, 20);
-scene.add(dirLight);
-
-// Blok Geometrisi ve Materyalleri (Performans için tek geometri)
-const blockGeometry = new THREE.BoxGeometry(1, 1, 1);
-const materials = {
-    1: new THREE.MeshLambertMaterial({ color: 0x55dd55 }), // Toprak/Çim
-    2: new THREE.MeshLambertMaterial({ color: 0x888888 })  // Taş
-};
-
-let worldBlocks = {}; // İçinde meshleri tutacak
-let remotePlayers = {}; // Diğer oyuncuların meshleri
-
-// --- DELTA TIME & HAREKET HIZI SENKRONİZASYONU ---
-// Tableti güçlü olanın hızlı koşmasını engellemek için zaman tabanlı hesaplama
-let clock = new THREE.Clock();
-const PLAYER_SPEED = 5.0; // Saniyede 5 birim kare hareket
-
-let moveForward = false, moveBackward = false, moveLeft = false, moveRight = false;
-let moveDirection = new THREE.Vector3();
-
-// --- KONTROLLER VE POINTER LOCK ---
-const instructions = document.getElementById('instructions');
-document.addEventListener('click', () => {
-    document.body.requestPointerLock();
-});
-
-document.addEventListener('pointerlockchange', () => {
-    if (document.pointerLockElement === document.body) {
-        instructions.style.display = 'none';
-    } else {
-        instructions.style.display = 'block';
-    }
-});
-
-document.addEventListener('mousemove', (e) => {
-    if (document.pointerLockElement !== document.body) return;
-    camera.rotation.y -= e.movementX * 0.002;
-    camera.rotation.x -= e.movementY * 0.002;
-    camera.rotation.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, camera.rotation.x));
-});
-
-// Klavye Dinleyicileri
-const onKeyDown = (e) => {
-    if (e.code === 'KeyW') moveForward = true;
-    if (e.code === 'KeyS') moveBackward = true;
-    if (e.code === 'KeyA') moveLeft = true;
-    if (e.code === 'KeyD') moveRight = true;
-};
-const onKeyUp = (e) => {
-    if (e.code === 'KeyW') moveForward = false;
-    if (e.code === 'KeyS') moveBackward = false;
-    if (e.code === 'KeyA') moveLeft = false;
-    if (e.code === 'KeyD') moveRight = false;
-};
-document.addEventListener('keydown', onKeyDown);
-document.addEventListener('keyup', onKeyUp);
-
-// İlk başta boş bir zemin oluşturalım (Veri tabanında hiç blok yoksa diye başlangıç)
-function createInitialFloor() {
-    for(let x = -10; x < 10; x++) {
-        for(let z = -10; z < 10; z++) {
-            const id = `${x},0,${z}`;
-            spawnBlock(x, 0, z, 1, id);
-        }
-    }
+// Oyunu Başlatma Butonuna Basıldığında Çalışacak Fonksiyon
+function startGame() {
+    const worldAccess = document.getElementById('world-access').value;
+    document.getElementById('play-menu').classList.add('hidden');
+    document.getElementById('crosshair').classList.remove('hidden');
+    
+    isGameStarted = true;
+    initGame3D();
 }
 
-function spawnBlock(x, y, z, type, id) {
-    if (worldBlocks[id]) return;
-    const mesh = new THREE.Mesh(blockGeometry, materials[type]);
-    mesh.position.set(x, y, z);
-    scene.add(mesh);
-    worldBlocks[id] = mesh;
+// --- 3D OYUN DÜNYASI KURULUMU ---
+function initGame3D() {
+    clock = new THREE.Clock();
+    scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x87CEEB); // Minecraft Gökyüzü Mavisi
+    scene.fog = new THREE.FogExp2(0x87CEEB, 0.05);
+
+    camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera.position.set(0, 2, 0); // Başlangıç pozisyonu
+
+    renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.shadowMap.enabled = true;
+    document.body.appendChild(renderer.domElement);
+
+    // Işıklandırmalar
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+    scene.add(ambientLight);
+    const dirLight = new THREE.DirectionalLight(0xffffff, 0.6);
+    dirLight.position.set(10, 20, 15);
+    scene.add(dirLight);
+
+    // Temel Dünya Haritası Oluşturma (Taban Çimen Katmanı)
+    const blockGeo = new THREE.BoxGeometry(1, 1, 1);
+    const grassMat = new THREE.MeshLambertMaterial({ color: 0x55aa44 });
+
+    for (let x = -15; x <= 15; x++) {
+        for (let z = -15; z <= 15; z++) {
+            const block = new THREE.Mesh(blockGeo, grassMat);
+            block.position.set(x, 0, z);
+            scene.add(block);
+            blocks[`${x},0,${z}`] = block;
+        }
+    }
+
+    // Dokunmatik Kontrolleri Tanımla
+    setupMobileControls();
+
+    // Klavye Kontrolleri (PC için yedek)
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', onKeyUp);
+    window.addEventListener('resize', onWindowResize);
+
+    // Döngüyü Başlat
+    animateGame();
 }
 
-// --- BLOK ETKİLEŞİMİ (Kırma / Koyma) ---
-const raycaster = new THREE.Raycaster();
-const mouse = new THREE.Vector2(0, 0); // Ekranın tam ortası
+// --- KOSTÜMLÜ OYUNCU (STEVE) OLUŞTURMA SİHİRBAZI ---
+function createSteveMesh(colorArray) {
+    const playerGroup = new THREE.Group();
+    const pixelGeo = new THREE.BoxGeometry(0.1, 0.1, 0.1);
 
-document.addEventListener('mousedown', (e) => {
-    if (document.pointerLockElement !== document.body) return;
-
-    raycaster.setFromCamera(mouse, camera);
-    const intersects = raycaster.intersectObjects(Object.values(worldBlocks));
-
-    if (intersects.length > 0) {
-        const intersect = intersects[0];
-
-        if (e.button === 0) { // SOL TIK: BLOK KIRMA
-            const clickedMesh = intersect.object;
-            let targetId = null;
-            for (let id in worldBlocks) {
-                if (worldBlocks[id] === clickedMesh) {
-                    targetId = id;
-                    break;
-                }
-            }
-            if (targetId) {
-                scene.remove(clickedMesh);
-                delete worldBlocks[targetId];
-                socket.emit('blockBreak', { blockId: targetId });
-            }
-        } 
-        else if (e.button === 2) { // SAĞ TIK: BLOK KOYMA
-            const position = new THREE.Vector3();
-            position.copy(intersect.point).add(intersect.face.normal).round(); // Normal doğrultusunda yuvarla
-
-            const newId = `${position.x},${position.y},${position.z}`;
-            spawnBlock(position.x, position.y, position.z, 2, newId);
-            socket.emit('blockPlace', { blockId: newId, type: 2 });
+    // 8x8'lik piksel dizisini 3D küp kafaya dönüştürür (Editörün aynısı)
+    let idx = 0;
+    for (let y = 4; y > -4; y--) {
+        for (let x = -4; x < 4; x++) {
+            const colorHex = colorArray[idx] || "#ffffff";
+            const pixelMat = new THREE.MeshLambertMaterial({ color: new THREE.Color(colorHex) });
+            const pMesh = new THREE.Mesh(pixelGeo, pixelMat);
+            // Kafayı hafif yukarı yerleştiriyoruz ki gövde hizası otursun
+            pMesh.position.set(x * 0.1, (y * 0.1) + 1.2, 0); 
+            playerGroup.add(pMesh);
+            idx++;
         }
     }
-});
-// Sağ tık menüsünü engellemek için
-document.addEventListener('contextmenu', e => e.preventDefault());
 
+    // Basit Gövde/Bacak Kutusu (Kostüm tamamlayıcı)
+    const bodyGeo = new THREE.BoxGeometry(0.8, 1.2, 0.4);
+    const bodyMat = new THREE.MeshLambertMaterial({ color: 0x3355ff });
+    const bodyMesh = new THREE.Mesh(bodyGeo, bodyMat);
+    bodyMesh.position.set(0, 0.6, 0);
+    playerGroup.add(bodyMesh);
 
-// --- SOCKET.IO AĞ OLAYLARI ---
-socket.on('currentWorld', (worldData) => {
-    if (Object.keys(worldData).length === 0) {
-        createInitialFloor();
-    } else {
-        for (let id in worldData) {
-            const [x, y, z] = id.split(',').map(Number);
-            spawnBlock(x, y, z, worldData[id], id);
+    return playerGroup;
+}
+
+// --- MOBİL DOKUNMATİK JOYSTICK SİSTEMİ ---
+function setupMobileControls() {
+    // Sol Ekran: Yürüme Joysticki, Sağ Ekran: Kamera/Blok İşlemleri
+    window.addEventListener('touchstart', (e) => {
+        if (!isGameStarted) return;
+        const touch = e.touches[0];
+        
+        if (touch.clientX < window.innerWidth / 2) {
+            // Ekranın sol yarısı -> Joystick Başlat
+            moveJoystick.active = true;
+            moveJoystick.startX = touch.clientX;
+            moveJoystick.startY = touch.clientY;
+            moveJoystick.curX = touch.clientX;
+            moveJoystick.curY = touch.clientY;
+        } else {
+            // Ekranın sağ yarısı -> Kamera döndürme başlangıcı veya blok etkileşimi
+            moveJoystick.rightTouchId = touch.identifier;
+            moveJoystick.rightStartX = touch.clientX;
+            moveJoystick.rightStartY = touch.clientY;
+            moveJoystick.rightLastX = touch.clientX;
+            moveJoystick.rightLastY = touch.clientY;
+            moveJoystick.rightTime = Date.now();
         }
-    }
-});
+    }, { passive: false });
 
-socket.on('blockPlaced', (data) => {
-    const [x, y, z] = data.blockId.split(',').map(Number);
-    spawnBlock(x, y, z, data.type, data.blockId);
-});
+    window.addEventListener('touchmove', (e) => {
+        if (!isGameStarted) return;
+        for (let i = 0; i < e.touches.length; i++) {
+            const touch = e.touches[i];
+            
+            if (touch.clientX < window.innerWidth / 2 && moveJoystick.active) {
+                // Sol taraf sürükleme -> Joystick hareket ettir
+                moveJoystick.curX = touch.clientX;
+                moveJoystick.curY = touch.clientY;
 
-socket.on('blockBroken', (data) => {
-    if (worldBlocks[data.blockId]) {
-        scene.remove(worldBlocks[data.blockId]);
-        delete worldBlocks[data.blockId];
-    }
-});
+                let dx = moveJoystick.curX - moveJoystick.startX;
+                let dy = moveJoystick.curY - moveJoystick.startY;
+                let dist = Math.sqrt(dx*dx + dy*dy);
+                if(dist > 50) { dx = (dx/dist)*50; dy = (dy/dist)*50; }
 
-socket.on('currentPlayers', (players) => {
-    Object.keys(players).forEach((id) => {
-        if (id !== socket.id) {
-            createPlayerMesh(id, players[id]);
+                moveForward = -dy / 50;
+                moveLeft = -dx / 50;
+            } else {
+                // Sağ taraf sürükleme -> Kamerayı Çevir
+                let rdx = touch.clientX - moveJoystick.rightLastX;
+                let rdy = touch.clientY - moveJoystick.rightLastY;
+
+                yaw -= rdx * 0.005;
+                pitch -= rdy * 0.005;
+                pitch = Math.max(-Math.PI/2.5, Math.min(Math.PI/2.5, pitch));
+
+                moveJoystick.rightLastX = touch.clientX;
+                moveJoystick.rightLastY = touch.clientY;
+            }
+        }
+    }, { passive: false });
+
+    window.addEventListener('touchend', (e) => {
+        // Hangi dokunuşun bittiğini kontrol et
+        if (e.touches.length === 0 || e.changedTouches[0].clientX < window.innerWidth / 2) {
+            moveJoystick.active = false;
+            moveForward = 0;
+            moveLeft = 0;
+        } else {
+            // Sağ ekranda kısa süreli dokunuş olduysa (Sürükleme az ise) -> BLOK KOY/KIR
+            let duration = Date.now() - moveJoystick.rightTime;
+            let moveDist = Math.sqrt(Math.pow(moveJoystick.rightLastX - moveJoystick.rightStartX, 2) + Math.pow(moveJoystick.rightLastY - moveJoystick.rightStartY, 2));
+            if (duration < 250 && moveDist < 10) {
+                handleScreenTap();
+            }
         }
     });
+}
+
+// Dokunarak Blok Kırma/Koyma Mekaniği
+function handleScreenTap() {
+    const raycaster = new THREE.Raycaster();
+    // Ekranın tam ortasını (Crosshair'in olduğu yer) hedef alıyoruz
+    raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
+    const intersects = raycaster.intersectObjects(Object.values(blocks));
+
+    if (intersects.length > 0) {
+        const hit = intersects[0];
+        // Basitlik adına: Eğer tıklanan blok y=0 (Zemin) ise üzerine blok koy, yüksekse kır
+        if (hit.object.position.y === 0) {
+            const blockGeo = new THREE.BoxGeometry(1, 1, 1);
+            const blockMat = new THREE.MeshLambertMaterial({ color: 0x8b5a2b }); // Tahta/Toprak rengi
+            const newBlock = new THREE.Mesh(blockGeo, blockMat);
+            newBlock.position.copy(hit.object.position).add(hit.face.normal);
+            scene.add(newBlock);
+            blocks[`${newBlock.position.x},${newBlock.position.y},${newBlock.position.z}`] = newBlock;
+        } else {
+            scene.remove(hit.object);
+            delete blocks[`${hit.object.position.x},${hit.object.position.y},${hit.object.position.z}`];
+        }
+    }
+}
+
+// --- PC KLAVYE DESTEĞİ (Yedek & Test İçin) ---
+function onKeyDown(e) {
+    if(!isGameStarted) return;
+    if (e.code === 'KeyW' || e.code === 'ArrowUp') moveForward = 1;
+    if (e.code === 'KeyS' || e.code === 'ArrowDown') moveForward = -1;
+    if (e.code === 'KeyA' || e.code === 'ArrowLeft') moveLeft = 1;
+    if (e.code === 'KeyD' || e.code === 'ArrowRight') moveLeft = -1;
+}
+function onKeyUp(e) {
+    if(!isGameStarted) return;
+    if (['KeyW', 'KeyS', 'ArrowUp', 'ArrowDown'].includes(e.code)) moveForward = 0;
+    if (['KeyA', 'KeyD', 'ArrowLeft', 'ArrowRight'].includes(e.code)) moveLeft = 0;
+}
+
+// --- ANA OYUN DÖNGÜSÜ (Delta Time & Senkronizasyon) ---
+function animateGame() {
+    if (!isGameStarted) return;
+    requestAnimationFrame(animateGame);
+
+    const delta = clock.getDelta();
+
+    // Kameranın Bakış Açısını Güncelle (Sağ ekran sürüklemesi)
+    camera.rotation.order = "YXZ";
+    camera.rotation.set(pitch, yaw, 0);
+
+    // Hareket Fizikleri (Delta Time ile hız sabitleme)
+    playerVelocity.x -= playerVelocity.x * 10.0 * delta;
+    playerVelocity.z -= playerVelocity.z * 10.0 * delta;
+
+    playerDirection.z = Number(moveForward) - Number(false);
+    playerDirection.x = Number(moveLeft) - Number(false);
+    playerDirection.normalize();
+
+    if (moveForward !== 0) playerVelocity.z -= playerDirection.z * 40.0 * delta;
+    if (moveLeft !== 0) playerVelocity.x -= playerDirection.x * 40.0 * delta;
+
+    camera.translateX(-playerVelocity.x * delta);
+    camera.translateZ(-playerVelocity.z * delta);
+    camera.position.y = 2; // Havada uçmayı önle, zeminde tut
+
+    // Pozisyonumuzu Sunucuya ve Diğer Oyunculara Gönder
+    socket.emit('playerMove', {
+        x: camera.position.x,
+        y: camera.position.y,
+        z: camera.position.z,
+        rotation: yaw
+    });
+
+    renderer.render(scene, camera);
+}
+
+// --- SUNUCUDAN GELEN ÇOKLU OYUNCU BİLGİLERİ ---
+socket.on('loginSuccess', (data) => {
+    localPlayerId = socket.id;
+    // Mevcut aktif oyuncuları haritaya ekle (Kostümleriyle birlikte!)
+    for (let id in data.activePlayers) {
+        if (id !== localPlayerId) {
+            addRemotePlayer(id, data.activePlayers[id]);
+        }
+    }
 });
 
 socket.on('playerJoined', (data) => {
-    if (data.id !== socket.id) {
-        createPlayerMesh(data.id, data.pos);
+    if (data.id !== localPlayerId) {
+        addRemotePlayer(data.id, data.player);
     }
 });
+
+function addRemotePlayer(id, pData) {
+    if (remotePlayers[id]) scene.remove(remotePlayers[id]);
+    
+    // Sunucudan gelen skinData dizisiyle 3D Steve modelini oluşturuyoruz!
+    const playerMesh = createSteveMesh(pData.skin);
+    playerMesh.position.set(pData.x, pData.y, pData.z);
+    scene.add(playerMesh);
+    remotePlayers[id] = playerMesh;
+}
 
 socket.on('playerMoved', (data) => {
     if (remotePlayers[data.id]) {
@@ -185,64 +287,9 @@ socket.on('playerLeft', (id) => {
     }
 });
 
-function createPlayerMesh(id, pos) {
-    const geo = new THREE.CylinderGeometry(0.4, 0.4, 1.8, 8);
-    const mat = new THREE.MeshLambertMaterial({ color: 0xff0000 });
-    const mesh = new THREE.Mesh(geo, mat);
-    mesh.position.set(pos.x, pos.y, pos.z);
-    scene.add(mesh);
-    remotePlayers[id] = mesh;
-}
-
-// Başlangıç Kamera Pozisyonu
-camera.position.set(0, 3, 5);
-camera.rotation.order = "YXZ"; // Kamera rotasyon sırası düzeltildi
-
-// --- ANA OYUN DÖNGÜSÜ (TICK RATE / FPS BAĞIMSIZ) ---
-function animate() {
-    requestAnimationFrame(animate);
-
-    // Delta time alınıyor (Her cihazda aynı hızda hareket için kritik nokta!)
-    const delta = clock.getDelta();
-
-    // Kamera/Oyuncu Hareket Hesaplaması
-    moveDirection.z = Number(moveBackward) - Number(moveForward);
-    moveDirection.x = Number(moveRight) - Number(moveLeft);
-    moveDirection.normalize();
-
-    // İleri/Geri ve Sağ/Sol yön vektörlerini kameranın baktığı açıya göre ayarla
-    const camDirection = new THREE.Vector3();
-    camera.getWorldDirection(camDirection);
-    camDirection.y = 0; // Uçmayı engellemek için y eksenini sıfırla
-    camDirection.normalize();
-
-    const camSideways = new THREE.Vector3(-camDirection.z, 0, camDirection.x);
-
-    if (moveForward || moveBackward) {
-        camera.position.addScaledVector(camDirection, moveDirection.z * PLAYER_SPEED * delta);
-    }
-    if (moveLeft || moveRight) {
-        camera.position.addScaledVector(camSideways, moveDirection.x * PLAYER_SPEED * delta);
-    }
-
-    // Pozisyonu sunucuya bildir (Sadece hareket ediyorsak)
-    if (moveForward || moveBackward || moveLeft || moveRight || Math.abs(camera.rotation.y) > 0) {
-        socket.emit('playerMove', {
-            x: camera.position.x,
-            y: camera.position.y - 1, // Göz hizasından ayak hizasına
-            z: camera.position.z,
-            rotation: camera.rotation.y
-        });
-    }
-
-    renderer.render(scene, camera);
-}
-
-// Ekran Boyutu Değişirse Uyarla
-window.addEventListener('resize', () => {
+function onWindowResize() {
+    if(!isGameStarted) return;
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
-});
-
-animate();
+}
