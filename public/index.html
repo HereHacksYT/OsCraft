@@ -3,15 +3,77 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>OsCraft Online</title>
+    <title>OsCraft Pro</title>
     <link rel="stylesheet" href="style.css">
-    <!-- Three.js ve Socket.io -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="/socket.io/socket.io.js"></script>
 </head>
 <body>
-    <div id="crosshair">+</div>
-    <div id="instructions">Oynamak için Tıkla (W,A,S,D - Sol Tık: Kır, Sağ Tık: Koy)</div>
+
+    <!-- 1. GİRİŞ EKRANI -->
+    <div id="login-screen" class="menu-panel">
+        <h1>OSCRAFT PRO</h1>
+        <input type="text" id="username-input" placeholder="Kullanıcı Adı Girin..." maxlength="15">
+        <button onclick="login()">Giriş Yap</button>
+    </div>
+
+    <!-- 2. ANA MENÜ -->
+    <div id="main-menu" class="menu-panel hidden">
+        <h1 id="welcome-text">Hoş Geldin!</h1>
+        <button onclick="openOynaMenu()">OYNA</button>
+        <button onclick="openSkinEditor()">KOSTÜM YAP</button>
+    </div>
+
+    <!-- 3. Gelişmiş OYNA MENÜSÜ (Sekmeli) -->
+    <div id="play-menu" class="menu-panel hidden">
+        <div class="tabs">
+            <button class="tab-btn active" onclick="switchTab('worlds')">Dünyalarım</button>
+            <button class="tab-btn" onclick="switchTab('friends')">Arkadaşlarım</button>
+        </div>
+        
+        <!-- Dünyalar Sekmesi -->
+        <div id="worlds-tab" class="tab-content">
+            <div class="world-setting">
+                <label>Arkadaş Katılması: 
+                    <select id="world-access">
+                        <option value="open">Açık (Herkes gelebilir)</option>
+                        <option value="closed">Kapalı (Sadece Ben)</option>
+                    </select>
+                </label>
+            </div>
+            <button onclick="startGame()" class="start-btn">Dünyayı Başlat / Katıl</button>
+        </div>
+
+        <!-- Arkadaşlar Sekmesi -->
+        <div id="friends-tab" class="tab-content hidden">
+            <div class="search-box">
+                <input type="text" id="friend-search-input" placeholder="Arkadaş ismi arat...">
+                <button onclick="searchFriend()">Ara</button>
+            </div>
+            <div id="search-result"></div>
+            <h3>Arkadaşlarım:</h3>
+            <ul id="friends-list"></ul>
+        </div>
+        
+        <button onclick="backToMain()" class="back-btn">Geri</button>
+    </div>
+
+    <!-- 4. KOSTÜM EDİTÖRÜ PANELİ -->
+    <div id="skin-editor-panel" class="hidden">
+        <div id="canvas-container"></div>
+        <div class="editor-controls">
+            <h3>Renk Seç:</h3>
+            <input type="color" id="pixel-color" value="#ff0000">
+            <p style="font-size:12px; color:white;">Steve'i çevirmek için sürükle.<br>Boyamak için dokun/tıkla.</p>
+            <button onclick="saveSkinAndExit()" class="save-btn">Kaydet ve Çık</button>
+        </div>
+    </div>
+
+    <!-- Oyun içi Crosshair -->
+    <div id="crosshair" class="hidden">+</div>
+
+    <!-- Oyun Mekaniği ve Editör Dosyaları -->
+    <script src="editor.js"></script>
     <script src="game.js"></script>
 </body>
 </html>
