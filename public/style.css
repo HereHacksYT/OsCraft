@@ -1,0 +1,36 @@
+body, html {
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    width: 100%;
+    height: 100%;
+    user-select: none;
+    background-color: #87CEEB; /* Gökyüzü Mavisi */
+    font-family: sans-serif;
+}
+
+#crosshair {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 24px;
+    color: white;
+    font-weight: light;
+    pointer-events: none;
+    z-index: 10;
+}
+
+#instructions {
+    position: absolute;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    color: white;
+    background: rgba(0,0,0,0.5);
+    padding: 10px 20px;
+    border-radius: 5px;
+    pointer-events: none;
+    font-size: 14px;
+    text-align: center;
+}
