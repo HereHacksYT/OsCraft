@@ -6,82 +6,98 @@ const path = require('path');
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server, {
-    cors: { origin: "*" }
-});
+const io = new Server(server, { cors: { origin: "*" } });
 
 app.use(express.static(path.join(__dirname, 'public')));
 
-// --- 1. MONGODB BAĞLANTISI (Kayıt Sistemi) ---
-// NOT: Render'a yüklerken Environment Variables kısmına MONGO_URI ekleyeceksin.
-const MONGO_URI = process.env.MONGO_URI || "mongodb://localhost:2017/oscraft"; 
+// MongoDB Bağlantısı
+const MONGO_URI = process.env.MONGO_URI || "mongodb://localhost:27017/oscraft";
 mongoose.connect(MONGO_URI)
-  .then(() => console.log("MongoDB'ye başarıyla bağlanıldı! Dünyalar güvende."))
-  .catch(err => console.error("MongoDB bağlantı hatası:", err));
+  .then(() => console.log("MongoDB Pro Sürüm Bağlantısı Başarılı!"))
+  .catch(err => console.error("Veri tabanı hatası:", err));
+
+// --- YENİ MONGODB ŞEMALARI ---
+
+// Oyuncu ve Kostüm Şeması
+const UserSchema = new mongoose.Schema({
+    username: { type: String, unique: true, required: true },
+    skinData: { type: [String], default: Array(64).fill("#ffffff") }, // 8x8'lik basit Steve yüzü/vücudu için renk dizisi
+    friends: { type: [String], default: [] } // Arkadaşların kullanıcı adları
+});
+const User = mongoose.model('User', UserSchema);
 
 // Dünya Şeması
 const WorldSchema = new mongoose.Schema({
-    blockId: String, // "x,y,z" formatında
-    type: Number     // Blok tipi (1: Toprak, 2: Taş vb.)
+    worldName: { type: String, default: "Ana Dunya" },
+    owner: String,
+    isPublic: { type: Boolean, default: true },
+    blocks: [{ blockId: String, type: Number }]
 });
-const Block = mongoose.model('Block', WorldSchema);
+const World = mongoose.model('World', WorldSchema);
 
-// --- 2. OYUNCU VE DÜNYA YÖNETİMİ ---
-let players = {};
+// --- SOCKET.IO OYUN LOGİC ---
+let activePlayers = {};
 
-io.on('connection', async (socket) => {
-    console.log(`Yeni oyuncu bağlandı: ${socket.id}`);
+io.on('connection', (socket) => {
+    console.log(`Bağlantı: ${socket.id}`);
 
-    // Yeni gelen oyuncuya mevcut tüm dünyayı veri tabanından çekip gönderiyoruz
-    try {
-        const savedWorld = await Block.find({});
-        const worldData = {};
-        savedWorld.forEach(b => { worldData[b.blockId] = b.type; });
-        socket.emit('currentWorld', worldData);
-    } catch (err) {
-        console.error("Dünya yüklenirken hata oluştu:", err);
-    }
+    // Giriş Yapma / Hesap Oluşturma
+    socket.on('login', async (username) => {
+        let user = await User.findOne({ username });
+        if (!user) {
+            user = new User({ username });
+            await user.save();
+        }
+        socket.username = username;
+        activePlayers[socket.id] = { username, x: 0, y: 5, z: 0, rotation: 0, skin: user.skinData };
+        
+        socket.emit('loginSuccess', { user, activePlayers });
+        socket.broadcast.emit('playerJoined', { id: socket.id, player: activePlayers[socket.id] });
+    });
 
-    // Yeni oyuncuyu diğerlerine bildir
-    players[socket.id] = { x: 0, y: 5, z: 0, rotation: 0 };
-    io.emit('playerJoined', { id: socket.id, pos: players[socket.id] });
-    socket.emit('currentPlayers', players);
+    // Kostüm Kaydetme
+    socket.on('saveSkin', async (skinData) => {
+        if (socket.username) {
+            await User.findOneAndUpdate({ username: socket.username }, { skinData });
+            if (activePlayers[socket.id]) activePlayers[socket.id].skin = skinData;
+            console.log(`${socket.username} kostümünü güncelledi!`);
+        }
+    });
 
-    // Oyuncu hareket ettiğinde (Herkes aynı hızda senkronize olsun diye)
+    // Arkadaş Arama ve Ekleme
+    socket.on('searchFriend', async (targetName) => {
+        const target = await User.findOne({ username: targetName });
+        if (target) {
+            socket.emit('friendFound', targetName);
+        } else {
+            socket.emit('friendNotFound');
+        }
+    });
+
+    socket.on('addFriend', async (targetName) => {
+        if (socket.username && targetName !== socket.username) {
+            await User.findOneAndUpdate({ username: socket.username }, { $addToSet: { friends: targetName } });
+            const user = await User.findOne({ username: socket.username });
+            socket.emit('friendAdded', user.friends);
+        }
+    });
+
+    // Hareket Senkronizasyonu
     socket.on('playerMove', (data) => {
-        if (players[socket.id]) {
-            players[socket.id] = data;
+        if (activePlayers[socket.id]) {
+            activePlayers[socket.id].x = data.x;
+            activePlayers[socket.id].y = data.y;
+            activePlayers[socket.id].z = data.z;
+            activePlayers[socket.id].rotation = data.rotation;
             socket.broadcast.emit('playerMoved', { id: socket.id, pos: data });
         }
     });
 
-    // Blok Koyulduğunda (Veri tabanına kaydeder ve herkese iletir)
-    socket.on('blockPlace', async (data) => {
-        const { blockId, type } = data;
-        socket.broadcast.emit('blockPlaced', data);
-        
-        // MongoDB'ye kaydet (Yoksa ekle, varsa güncelle)
-        await Block.findOneAndUpdate({ blockId }, { type }, { upsert: true });
-    });
-
-    // Blok Kırıldığında (Veri tabanından siler ve herkese iletir)
-    socket.on('blockBreak', async (data) => {
-        const { blockId } = data;
-        socket.broadcast.emit('blockBroken', data);
-        
-        // MongoDB'den sil
-        await Block.deleteOne({ blockId });
-    });
-
-    // Oyuncu çıktığında
     socket.on('disconnect', () => {
-        console.log(`Oyuncu ayrıldı: ${socket.id}`);
-        delete players[socket.id];
+        delete activePlayers[socket.id];
         io.emit('playerLeft', socket.id);
     });
 });
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-    console.log(`Sunucu ${PORT} portunda aktif!`);
-});
+server.listen(PORT, () => console.log(`Server ${PORT} üzerinde uçuyor...`));
